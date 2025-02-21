@@ -1,4 +1,4 @@
-### ALSA <-> Oboe I/O PCM Plugin
+### ALSA <-> Snapcast I/O PCM Plugin
 
 #### Description
 

@@ -1,10 +1,10 @@
-### ALSA <-> Snapcast I/O PCM Plugin
+# ALSA <-> Snapcast I/O PCM Plugin
 
-#### Description
+## Description
 
 ALSA userspace library ([`alsa-lib`](https://github.com/alsa-project/alsa-lib/)) adding a virtual Snapcast device.
 
-#### Configuration ([`.asoundrc`](https://www.alsa-project.org/wiki/Asoundrc))
+## Configuration ([`.asoundrc`](https://www.alsa-project.org/wiki/Asoundrc))
 
 * **Basic**: This will only support anything directly exposed by the plugin, that being mono/stereo `S16`/`S24`/`S32` LE @ 8kHz-48kHz audio.
 

@@ -16,11 +16,23 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ***/
 
+
+
+// local headers
+#include "aixlog.hpp"
+#include "snapstream.hpp"
+
+// 3rd party headers
 #include <alsa/asoundlib.h>
+#include <alsa/conf.h>
 #include <alsa/pcm.h>
 #include <alsa/pcm_external.h>
 #include <alsa/pcm_ioplug.h>
+#include <boost/asio.hpp>
 
+// standard headers
+#include <boost/asio/read.hpp>
+#include <boost/asio/write.hpp>
 #include <chrono>
 #include <cstdint>
 #include <initializer_list>
@@ -29,21 +41,16 @@
 #include <mutex>
 #include <thread>
 
-#include "aixlog.hpp"
-
 
 static constexpr auto LOG_TAG = "SnapcastPCM";
 
-/**
- * @brief An ALSA PCM I/O plugin that uses Oboe for playing audio on Android.
- * @note This currently only supports playback, capture is not supported.
- * @note The default backend is currently OpenSL as AAudio is broken on some devices.
- */
+
+/// An ALSA PCM I/O plugin that uses SnapStream for forwarding audio to Snapserver
 class SnapcastPcm
 {
 private:
     std::mutex mutex;
-    // std::shared_ptr<oboe::AudioStream> stream;
+    std::shared_ptr<SnapStream> stream;
     int64_t written;
     std::chrono::time_point<std::chrono::steady_clock> next{std::chrono::seconds(0)};
     constexpr static int64_t TimeoutNanoseconds{
@@ -147,6 +154,8 @@ private:
         if (size == 0)
             return 0;
 
+        self->stream->start();
+
         // if (self->stream->getState() != oboe::StreamState::Started) {
         //     // ALSA expects us to automatically start the stream if it's not started.
         //     oboe::Result result{self->stream->requestStart()};
@@ -155,6 +164,11 @@ private:
         //         std::endl; return -1;
         //     }
         // }
+
+        auto& firstArea{areas[0]};
+        auto* address{reinterpret_cast<uint8_t*>(firstArea.addr)};
+
+        self->stream->write(address, size * 4);
 
         auto now = std::chrono::steady_clock::now();
         if (self->next == std::chrono::time_point<std::chrono::steady_clock>(std::chrono::seconds(0)))
@@ -168,8 +182,6 @@ private:
         {
             std::this_thread::sleep_for(self->next - now);
         }
-        auto& firstArea{areas[0]};
-        auto* address{reinterpret_cast<uint8_t*>(firstArea.addr)};
 
 #ifndef NDEBUG
         uint channelOffset{0};
@@ -178,7 +190,7 @@ private:
             auto& area{areas[c]};
             if (area.addr != firstArea.addr || area.step != firstArea.step || area.first >= firstArea.step)
             {
-                std::cerr << "[ALSA Oboe] Attempt to transfer non-interleaved samples" << std::endl;
+                LOG(ERROR, LOG_TAG) << "[ALSA Snapcast] Attempt to transfer non-interleaved samples\n";
                 return -1;
             }
         }
@@ -224,8 +236,11 @@ private:
         //     ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium)
         //     ->setBufferCapacityInFrames(ext->buffer_size)
 
-        // if (self->stream)
-        //     return 0;
+        if (self->stream)
+            return 0;
+
+        self->stream = std::make_shared<SnapStream>();
+        return 0;
 
         // oboe::AudioStreamBuilder builder;
         // builder.setUsage(oboe::Usage::Game)
@@ -378,7 +393,6 @@ public:
 
     SnapcastPcm()
     {
-        AixLog::Log::init<AixLog::SinkFile>(AixLog::Severity::trace, "all.log");
         LOG(INFO, LOG_TAG) << "SnapcastPcm\n";
     }
 
@@ -433,7 +447,7 @@ public:
     ~SnapcastPcm()
     {
         std::scoped_lock lock{mutex};
-        // stream.reset();
+        stream.reset();
         LOG(INFO, LOG_TAG) << "~SnapcastPcm\n";
     }
 };
@@ -442,13 +456,45 @@ extern "C"
 {
     SND_PCM_PLUGIN_DEFINE_FUNC(snapcast)
     {
+        AixLog::Log::init<AixLog::SinkFile>(AixLog::Severity::trace, "all.log");
         // Note: We don't need to do anything with the config, so we can just ignore it.
+        snd_config_iterator_t i, next;
+        int err;
+        snd_pcm_t* spcm;
+        snd_config_t *slave = NULL, *sconf;
+        const char *fname = NULL, *ifname = NULL;
+        const char* format = NULL;
+        long fd = -1, ifd = -1, trunc = 1;
+        long perm = 0600;
+        snd_config_for_each(i, next, conf)
+        {
+            snd_config_t* n = snd_config_iterator_entry(i);
+            const char* id;
+            if (snd_config_get_id(n, &id) < 0)
+                continue;
+            LOG(INFO, LOG_TAG) << "config id: " << id << "\n";
+            if (strcmp(id, "port") == 0)
+            {
+                long port;
+                err = snd_config_get_integer(n, &port);
+                if (err < 0)
+                {
+                }
+                else
+                {
+                    LOG(INFO, LOG_TAG) << "Port: " << port << "\n";
+                }
+                continue;
+            }
+            // SNDERR("Unknown field %s", id);
+            // return -EINVAL;
+        }
 
         SnapcastPcm* plugin{new (std::nothrow) SnapcastPcm{}};
         if (!plugin)
             return -ENOMEM;
 
-        int err{plugin->Initialize(name, stream, mode)};
+        err = plugin->Initialize(name, stream, mode);
         if (err < 0)
         {
             delete plugin;

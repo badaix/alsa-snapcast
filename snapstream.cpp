@@ -26,13 +26,80 @@
 #include <boost/asio.hpp>
 
 // standard headers
-#include <optional>
+#include <string>
 #include <thread>
 
 
 static constexpr auto LOG_TAG = "SnapStream";
 
 using boost::asio::ip::tcp;
+using namespace std::chrono_literals;
+
+
+SnapStream::SnapStream(Uri uri)
+    : socket_(io_context_), resolver_(io_context_), timer_(io_context_), uri_(std::move(uri)), connected_(false)
+{
+    LOG(DEBUG, LOG_TAG) << "SnapStream: " << uri_.toString() << "\n";
+}
+
+
+void SnapStream::resolve()
+{
+    resolver_.async_resolve(uri_.host, std::to_string(uri_.port.value()),
+                            [this](const boost::system::error_code& ec, const tcp::resolver::results_type& results)
+    {
+        if (ec)
+        {
+            LOG(ERROR, LOG_TAG) << "Failed to resolve host '" << uri_.host << "', error: " << ec.message() << "\n";
+            timer_.expires_after(1s);
+            timer_.async_wait(
+                [this](const boost::system::error_code& ec)
+            {
+                if (!ec)
+                {
+                    resolve();
+                }
+            });
+        }
+        else
+        {
+            for (const auto& iter : results)
+                LOG(DEBUG, LOG_TAG) << "Resolved IP: " << iter.endpoint().address().to_string() << "\n";
+
+            connect(results.begin()->endpoint());
+        }
+    });
+}
+
+
+void SnapStream::connect(const boost::asio::ip::basic_endpoint<tcp>& ep)
+{
+    LOG(DEBUG, LOG_TAG) << "Connecting to: " << ep << "\n";
+    socket_.async_connect(ep,
+                          [this, ep](boost::system::error_code ec)
+    {
+        if (!ec)
+        {
+            LOG(DEBUG, LOG_TAG) << "Connected\n";
+            connected_ = true;
+            read();
+        }
+        else
+        {
+            LOG(ERROR, LOG_TAG) << "Failed to connect: " << ec << "\n";
+            timer_.expires_after(1s);
+            timer_.async_wait(
+                [this, ep](const boost::system::error_code& ec)
+            {
+                if (!ec)
+                {
+                    connect(ep);
+                }
+            });
+        }
+    });
+}
+
 
 void SnapStream::start()
 {
@@ -40,41 +107,48 @@ void SnapStream::start()
         return;
     LOG(DEBUG, LOG_TAG) << "Start\n";
 
-    boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address("127.0.0.1"), 4955);
-    socket_ = tcp::socket(io_context_);
-    LOG(DEBUG, LOG_TAG) << "Connecting to: " << endpoint << "\n";
-    socket_->async_connect(endpoint,
-                           [this](boost::system::error_code ec)
-    {
-        if (!ec)
-        {
-            LOG(DEBUG, LOG_TAG) << "Connected\n";
-            read();
-        }
-        else
-        {
-            LOG(ERROR, LOG_TAG) << "Failed to connect: " << ec << "\n";
-        }
-    });
+    resolve();
     t_ = std::thread([&]() { io_context_.run(); });
 }
+
+
+void SnapStream::stop()
+{
+    io_context_.stop();
+    connected_ = false;
+    t_.join();
+}
+
 
 void SnapStream::write(const void* data, uint32_t size)
 {
     LOG(DEBUG, LOG_TAG) << "Write " << size << " bytes\n";
-    boost::asio::async_write(*socket_, boost::asio::buffer(data, size),
+    if (!connected_)
+    {
+        LOG(DEBUG, LOG_TAG) << "Not connected\n";
+        return;
+    }
+
+    boost::asio::async_write(socket_, boost::asio::buffer(data, size),
                              [this](boost::system::error_code ec, std::size_t length)
     {
         if (!ec)
+        {
             LOG(DEBUG, LOG_TAG) << "Wrote " << length << " bytes\n";
+        }
         else
+        {
             LOG(ERROR, LOG_TAG) << "Failed to write: " << ec << "\n";
+            connected_ = false;
+            socket_.close();
+            resolve();
+        }
     });
 }
 
 void SnapStream::read()
 {
-    boost::asio::async_read(*socket_, boost::asio::buffer(buffer_.data(), buffer_.size()),
+    boost::asio::async_read(socket_, boost::asio::buffer(buffer_.data(), buffer_.size()),
                             [this](boost::system::error_code ec, std::size_t length)
     {
         if (!ec)
@@ -85,6 +159,9 @@ void SnapStream::read()
         else
         {
             LOG(ERROR, LOG_TAG) << "Failed to read: " << ec << "\n";
+            connected_ = false;
+            socket_.close();
+            resolve();
         }
     });
 }

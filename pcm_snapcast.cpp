@@ -21,6 +21,7 @@
 // local headers
 #include "aixlog.hpp"
 #include "snapstream.hpp"
+#include "uri.hpp"
 
 // 3rd party headers
 #include <alsa/asoundlib.h>
@@ -51,6 +52,7 @@ class SnapcastPcm
 private:
     std::mutex mutex;
     std::shared_ptr<SnapStream> stream;
+    Uri uri;
     int64_t written;
     std::chrono::time_point<std::chrono::steady_clock> next{std::chrono::seconds(0)};
     constexpr static int64_t TimeoutNanoseconds{
@@ -239,7 +241,7 @@ private:
         if (self->stream)
             return 0;
 
-        self->stream = std::make_shared<SnapStream>();
+        self->stream = std::make_shared<SnapStream>(self->uri);
         return 0;
 
         // oboe::AudioStreamBuilder builder;
@@ -396,9 +398,11 @@ public:
         LOG(INFO, LOG_TAG) << "SnapcastPcm\n";
     }
 
-    int Initialize(const char* name, snd_pcm_stream_t stream, int mode)
+    int Initialize(const char* name, snd_pcm_stream_t stream, int mode, const Uri& uri)
     {
-        LOG(INFO, LOG_TAG) << "Initialize name: " << name << ", mode: " << mode << "\n";
+        LOG(INFO, LOG_TAG) << "Initialize name: " << name << ", mode: " << mode << ", uri: " << uri.toString() << "\n";
+        this->uri = uri;
+
         if (stream != SND_PCM_STREAM_PLAYBACK)
             return -EINVAL; // We only support playback for now.
 
@@ -466,6 +470,7 @@ extern "C"
         const char* format = NULL;
         long fd = -1, ifd = -1, trunc = 1;
         long perm = 0600;
+        Uri uri("tcp://127.0.0.1:4953");
         snd_config_for_each(i, next, conf)
         {
             snd_config_t* n = snd_config_iterator_entry(i);
@@ -473,16 +478,21 @@ extern "C"
             if (snd_config_get_id(n, &id) < 0)
                 continue;
             LOG(INFO, LOG_TAG) << "config id: " << id << "\n";
-            if (strcmp(id, "port") == 0)
+            if (strcmp(id, "uri") == 0)
             {
-                long port;
-                err = snd_config_get_integer(n, &port);
+                const char* uri_param = nullptr;
+                err = snd_config_get_string(n, &uri_param);
+                // TODO: error handling
+                uri = Uri(uri_param);
+                if (!uri.port.has_value())
+                    uri.port = 4953;
+
                 if (err < 0)
                 {
                 }
                 else
                 {
-                    LOG(INFO, LOG_TAG) << "Port: " << port << "\n";
+                    LOG(INFO, LOG_TAG) << "URI: " << uri.toString() << "\n";
                 }
                 continue;
             }
@@ -494,7 +504,7 @@ extern "C"
         if (!plugin)
             return -ENOMEM;
 
-        err = plugin->Initialize(name, stream, mode);
+        err = plugin->Initialize(name, stream, mode, uri);
         if (err < 0)
         {
             delete plugin;

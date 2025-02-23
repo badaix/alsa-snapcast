@@ -19,12 +19,14 @@
 #pragma once
 
 // local headers
+#include "uri.hpp"
 
 // 3rd party headers
+#include <atomic>
 #include <boost/asio.hpp>
 
 // standard headers
-#include <optional>
+#include <boost/asio/ip/basic_endpoint.hpp>
 #include <thread>
 
 
@@ -34,13 +36,23 @@ using boost::asio::ip::tcp;
 class SnapStream
 {
 public:
+    explicit SnapStream(Uri uri);
+
     void start();
+    void stop();
     void write(const void* data, uint32_t size);
     void read();
 
 private:
+    void resolve();
+    void connect(const boost::asio::ip::basic_endpoint<tcp>& ep);
+
     std::thread t_;
     boost::asio::io_context io_context_;
-    std::optional<tcp::socket> socket_;
+    tcp::socket socket_;
     std::array<char, 100> buffer_;
+    boost::asio::ip::tcp::resolver resolver_;
+    boost::asio::steady_timer timer_;
+    Uri uri_;
+    std::atomic_bool connected_;
 };

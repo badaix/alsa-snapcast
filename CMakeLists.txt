@@ -20,7 +20,7 @@ link_directories(${alsa_LIBRARY_DIRS})
 # Targets
 
 ## ALSA Plugin
-add_library(asound_module_pcm_snapcast SHARED pcm_snapcast.cpp snapstream.cpp)
+add_library(asound_module_pcm_snapcast SHARED pcm_snapcast.cpp snapstream.cpp string_utils.cpp uri.cpp)
 target_link_libraries(asound_module_pcm_snapcast PkgConfig::alsa)
 ### ALSA requires PIC for dynamically linked plugins, so we need to define it.
 target_compile_definitions(asound_module_pcm_snapcast PRIVATE -DPIC=1)

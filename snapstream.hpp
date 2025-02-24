@@ -41,11 +41,11 @@ public:
     void start();
     void stop();
     void write(const void* data, uint32_t size);
-    void read();
 
 private:
     void resolve();
     void connect(const boost::asio::ip::basic_endpoint<tcp>& ep);
+    void read();
 
     std::thread t_;
     boost::asio::io_context io_context_;

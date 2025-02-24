@@ -2,7 +2,20 @@
 
 ## Description
 
-ALSA userspace library ([`alsa-lib`](https://github.com/alsa-project/alsa-lib/)) adding a virtual Snapcast device.
+ALSA userspace library ([`alsa-lib`](https://github.com/alsa-project/alsa-lib/)) adding a virtual Snapcast device, that can be used as input for the [TCP stream source](https://github.com/badaix/snapcast/blob/develop/doc/configuration.md#tcp-server).
+
+Example `snapserver.conf`:
+
+```ini
+# Stream settings #############################################################
+#
+[stream]
+
+source = tcp://127.0.0.1?name=TCP&sampleformat=44100:16:2
+
+...
+
+```
 
 ## Milestones
 
@@ -25,12 +38,18 @@ sudo cp libasound_module_pcm_snapcast.so /usr/lib/x86_64-linux-gnu/alsa-lib/
 
 ## Configuration ([`.asoundrc`](https://www.alsa-project.org/wiki/Asoundrc))
 
-- **Basic**: This will only support anything directly exposed by the plugin, that being mono/stereo `S16`/`S24`/`S32` LE @ 8kHz-48kHz audio.
+- **Basic**: This will only support anything directly exposed by the plugin, defaulting to `44100:16:2`.
+
+Supported parameters:
+
+- `uri` [string, optional]: the url of the TCP server where the audio is sent to (default: `tcp://localhost:4953`)
+- `sampleformat` [string, optional]: the supported sample format of this virtual device (default: `44100:16:2`)
 
 ```txt
 pcm.!default {
     type snapcast
     uri "tcp://localhost:4953"
+    sampleformat "44100:16:2"
     hint {
         show {
             @func refer
@@ -51,11 +70,13 @@ pcm.!default {
             type mmap_emul
             slave.pcm {
                 type snapcast
+                uri "tcp://localhost:4953"
+                sampleformat "44100:16:2"
             }
         }
         format S16_LE
-        rate unchanged
-        channels unchanged
+        rate 44100
+        channels 2
     }
     hint {
         show {

@@ -20,6 +20,7 @@
 
 // local headers
 #include "aixlog.hpp"
+#include "sample_format.hpp"
 #include "snapstream.hpp"
 #include "uri.hpp"
 
@@ -29,11 +30,8 @@
 #include <alsa/pcm.h>
 #include <alsa/pcm_external.h>
 #include <alsa/pcm_ioplug.h>
-#include <boost/asio.hpp>
 
 // standard headers
-#include <boost/asio/read.hpp>
-#include <boost/asio/write.hpp>
 #include <chrono>
 #include <cstdint>
 #include <initializer_list>
@@ -398,9 +396,11 @@ public:
         LOG(INFO, LOG_TAG) << "SnapcastPcm\n";
     }
 
-    int Initialize(const char* name, snd_pcm_stream_t stream, int mode, const Uri& uri)
+    int Initialize(const char* name, snd_pcm_stream_t stream, int mode, const SampleFormat& sampleformat,
+                   const Uri& uri)
     {
-        LOG(INFO, LOG_TAG) << "Initialize name: " << name << ", mode: " << mode << ", uri: " << uri.toString() << "\n";
+        LOG(INFO, LOG_TAG) << "Initialize name: " << name << ", mode: " << mode
+                           << ", sample format: " << sampleformat.toString() << ", uri: " << uri.toString() << "\n";
         this->uri = uri;
 
         if (stream != SND_PCM_STREAM_PLAYBACK)
@@ -417,22 +417,40 @@ public:
         if (err < 0)
             return err;
 
-        err = setParamList(SND_PCM_IOPLUG_HW_FORMAT, {
-                                                         SND_PCM_FORMAT_S16_LE,
-                                                         SND_PCM_FORMAT_S24_LE,
-                                                         SND_PCM_FORMAT_S32_LE,
-                                                     });
+        _snd_pcm_format format = SND_PCM_FORMAT_S16_LE;
+        switch (sampleformat.bits())
+        {
+            case 8:
+                format = SND_PCM_FORMAT_S8;
+                break;
+            case 16:
+                format = SND_PCM_FORMAT_S16_LE;
+                break;
+            case 24:
+                format = SND_PCM_FORMAT_S24_LE;
+                break;
+            case 32:
+                format = SND_PCM_FORMAT_S32_LE;
+                break;
+            default: // TODO: error handling
+                format = SND_PCM_FORMAT_S16_LE;
+        }
+
+        err = setParamList(SND_PCM_IOPLUG_HW_FORMAT, {static_cast<unsigned int>(format)});
         if (err < 0)
             return err;
 
         // We could support more than 2 channels, but it's fairly complicated due to channel mappings.
-        err = snd_pcm_ioplug_set_param_minmax(&plug, SND_PCM_IOPLUG_HW_CHANNELS, 1, 2);
+        // err = snd_pcm_ioplug_set_param_minmax(&plug, SND_PCM_IOPLUG_HW_CHANNELS, 1, 2);
+        err = snd_pcm_ioplug_set_param_minmax(&plug, SND_PCM_IOPLUG_HW_CHANNELS, sampleformat.channels(),
+                                              sampleformat.channels());
         if (err < 0)
             return err;
 
         // Oboe supports any sample rate with sample rate conversion, but we'll limit it to a reasonable range (8kHz -
         // 192kHz).
-        err = snd_pcm_ioplug_set_param_minmax(&plug, SND_PCM_IOPLUG_HW_RATE, 8000, 192000);
+        // err = snd_pcm_ioplug_set_param_minmax(&plug, SND_PCM_IOPLUG_HW_RATE, 8000, 192000);
+        err = snd_pcm_ioplug_set_param_minmax(&plug, SND_PCM_IOPLUG_HW_RATE, sampleformat.rate(), sampleformat.rate());
         if (err < 0)
             return err;
 
@@ -471,6 +489,8 @@ extern "C"
         long fd = -1, ifd = -1, trunc = 1;
         long perm = 0600;
         Uri uri("tcp://127.0.0.1:4953");
+        SampleFormat sampleformat("44100:16:2");
+
         snd_config_for_each(i, next, conf)
         {
             snd_config_t* n = snd_config_iterator_entry(i);
@@ -496,6 +516,23 @@ extern "C"
                 }
                 continue;
             }
+
+            if (strcmp(id, "sampleformat") == 0)
+            {
+                const char* sample_param = nullptr;
+                err = snd_config_get_string(n, &sample_param);
+                // TODO: error handling
+                sampleformat = SampleFormat(sample_param);
+
+                if (err < 0)
+                {
+                }
+                else
+                {
+                    LOG(INFO, LOG_TAG) << "Sample format: " << sampleformat.toString() << "\n";
+                }
+                continue;
+            }
             // SNDERR("Unknown field %s", id);
             // return -EINVAL;
         }
@@ -504,7 +541,7 @@ extern "C"
         if (!plugin)
             return -ENOMEM;
 
-        err = plugin->Initialize(name, stream, mode, uri);
+        err = plugin->Initialize(name ? name : "Snapcast PCM", stream, mode, sampleformat, uri);
         if (err < 0)
         {
             delete plugin;

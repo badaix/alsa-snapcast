@@ -31,7 +31,7 @@ source = tcp://127.0.0.1?name=TCP&sampleformat=44100:16:2
 cd <project dir>
 mkdir build
 cd build
-cmake ..
+cmake .. -DCMAKE_BUILD_TYPE=Release
 make
 sudo cp libasound_module_pcm_snapcast.so /usr/lib/x86_64-linux-gnu/alsa-lib/
 ```
@@ -44,6 +44,8 @@ Supported parameters:
 
 - `uri` [string, optional]: the url of the TCP server where the audio is sent to (default: `tcp://localhost:4953`)
 - `sampleformat` [string, optional]: the supported sample format of this virtual device (default: `44100:16:2`)
+- `logfile` [string, optional]: log to a file, log to syslog if not specified
+- `logfilter` [string, optional]: log filter (default `*:error`)
 
 ```txt
 pcm.!default {

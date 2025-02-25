@@ -22,6 +22,7 @@
 #include "aixlog.hpp"
 #include "sample_format.hpp"
 #include "snapstream.hpp"
+#include "string_utils.hpp"
 #include "uri.hpp"
 
 // 3rd party headers
@@ -478,7 +479,6 @@ extern "C"
 {
     SND_PCM_PLUGIN_DEFINE_FUNC(snapcast)
     {
-        AixLog::Log::init<AixLog::SinkFile>(AixLog::Severity::trace, "all.log");
         // Note: We don't need to do anything with the config, so we can just ignore it.
         snd_config_iterator_t i, next;
         int err;
@@ -490,6 +490,8 @@ extern "C"
         long perm = 0600;
         Uri uri("tcp://127.0.0.1:4953");
         SampleFormat sampleformat("44100:16:2");
+        AixLog::Filter logfilter(AixLog::Severity::error);
+        std::string logfile;
 
         snd_config_for_each(i, next, conf)
         {
@@ -497,7 +499,7 @@ extern "C"
             const char* id;
             if (snd_config_get_id(n, &id) < 0)
                 continue;
-            LOG(INFO, LOG_TAG) << "config id: " << id << "\n";
+            // LOG(INFO, LOG_TAG) << "config id: " << id << "\n";
             if (strcmp(id, "uri") == 0)
             {
                 const char* uri_param = nullptr;
@@ -509,10 +511,6 @@ extern "C"
 
                 if (err < 0)
                 {
-                }
-                else
-                {
-                    LOG(INFO, LOG_TAG) << "URI: " << uri.toString() << "\n";
                 }
                 continue;
             }
@@ -527,15 +525,33 @@ extern "C"
                 if (err < 0)
                 {
                 }
-                else
-                {
-                    LOG(INFO, LOG_TAG) << "Sample format: " << sampleformat.toString() << "\n";
-                }
                 continue;
             }
-            // SNDERR("Unknown field %s", id);
-            // return -EINVAL;
+
+            if (strcmp(id, "logfilter") == 0)
+            {
+                logfilter = AixLog::Filter();
+                const char* param = nullptr;
+                err = snd_config_get_string(n, &param);
+                auto filters = utils::string::split(param, ',');
+                for (const auto& filter : filters)
+                    logfilter.add_filter(filter);
+                continue;
+            }
+
+            if (strcmp(id, "logfile") == 0)
+            {
+                const char* param = nullptr;
+                err = snd_config_get_string(n, &param);
+                logfile = param;
+                continue;
+            }
         }
+
+        if (!logfile.empty())
+            AixLog::Log::init<AixLog::SinkFile>(logfilter, logfile);
+        else
+            AixLog::Log::init<AixLog::SinkNative>("snapstream", logfilter);
 
         SnapcastPcm* plugin{new (std::nothrow) SnapcastPcm{}};
         if (!plugin)

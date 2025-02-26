@@ -81,13 +81,14 @@ void SnapStream::connect(const boost::asio::ip::basic_endpoint<tcp>& ep)
     {
         if (!ec)
         {
-            LOG(INFO, LOG_TAG) << "Connected to " << ec << "\n";
+            LOG(INFO, LOG_TAG) << "Connected to '" << ep << "'\n";
             connected_ = true;
             read();
         }
         else
         {
-            LOG(ERROR, LOG_TAG) << "Failed to connect: " << ec << ", message: " << ec.message() << "\n";
+            LOG(ERROR, LOG_TAG) << "Failed to connect to '" << ep << "': " << ec << ", message: " << ec.message()
+                                << "\n";
             timer_.expires_after(1s);
             timer_.async_wait(
                 [this, ep](const boost::system::error_code& ec)

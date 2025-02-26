@@ -39,7 +39,7 @@ using namespace std::chrono_literals;
 SnapStream::SnapStream(Uri uri)
     : socket_(io_context_), resolver_(io_context_), timer_(io_context_), uri_(std::move(uri)), connected_(false)
 {
-    LOG(DEBUG, LOG_TAG) << "SnapStream: " << uri_.toString() << "\n";
+    LOG(INFO, LOG_TAG) << "Create SnapStream: " << uri_.toString() << "\n";
 }
 
 
@@ -50,7 +50,8 @@ void SnapStream::resolve()
     {
         if (ec)
         {
-            LOG(ERROR, LOG_TAG) << "Failed to resolve host '" << uri_.host << "', error: " << ec.message() << "\n";
+            LOG(ERROR, LOG_TAG) << "Failed to resolve host '" << uri_.host << "', error: " << ec
+                                << ", message: " << ec.message() << "\n";
             timer_.expires_after(1s);
             timer_.async_wait(
                 [this](const boost::system::error_code& ec)
@@ -64,7 +65,7 @@ void SnapStream::resolve()
         else
         {
             for (const auto& iter : results)
-                LOG(DEBUG, LOG_TAG) << "Resolved IP: " << iter.endpoint().address().to_string() << "\n";
+                LOG(INFO, LOG_TAG) << "Resolved IP: " << iter.endpoint().address().to_string() << "\n";
 
             connect(results.begin()->endpoint());
         }
@@ -80,13 +81,13 @@ void SnapStream::connect(const boost::asio::ip::basic_endpoint<tcp>& ep)
     {
         if (!ec)
         {
-            LOG(DEBUG, LOG_TAG) << "Connected\n";
+            LOG(INFO, LOG_TAG) << "Connected to " << ec << "\n";
             connected_ = true;
             read();
         }
         else
         {
-            LOG(ERROR, LOG_TAG) << "Failed to connect: " << ec << "\n";
+            LOG(ERROR, LOG_TAG) << "Failed to connect: " << ec << ", message: " << ec.message() << "\n";
             timer_.expires_after(1s);
             timer_.async_wait(
                 [this, ep](const boost::system::error_code& ec)
@@ -105,7 +106,7 @@ void SnapStream::start()
 {
     if (t_.joinable())
         return;
-    LOG(DEBUG, LOG_TAG) << "Start\n";
+    LOG(INFO, LOG_TAG) << "Start\n";
 
     resolve();
     t_ = std::thread([&]() { io_context_.run(); });
@@ -138,7 +139,7 @@ void SnapStream::write(const void* data, uint32_t size)
         }
         else
         {
-            LOG(ERROR, LOG_TAG) << "Failed to write: " << ec << "\n";
+            LOG(ERROR, LOG_TAG) << "Failed to write: " << ec << ", message: " << ec.message() << "\n";
             connected_ = false;
             socket_.close();
             resolve();
@@ -158,7 +159,7 @@ void SnapStream::read()
         }
         else
         {
-            LOG(ERROR, LOG_TAG) << "Failed to read: " << ec << "\n";
+            LOG(ERROR, LOG_TAG) << "Failed to read: " << ec << ", message: " << ec.message() << "\n";
             connected_ = false;
             socket_.close();
             resolve();

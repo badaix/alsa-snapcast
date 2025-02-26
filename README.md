@@ -45,7 +45,7 @@ Supported parameters:
 - `uri` [string, optional]: the url of the TCP server where the audio is sent to (default: `tcp://localhost:4953`)
 - `sampleformat` [string, optional]: the supported sample format of this virtual device (default: `44100:16:2`)
 - `logfile` [string, optional]: log to a file, log to syslog if not specified
-- `logfilter` [string, optional]: log filter (default `*:error`)
+- `logfilter` [string, optional]: log filter (default `*:info`)
 
 ```txt
 pcm.!default {

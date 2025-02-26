@@ -54,17 +54,16 @@ private:
     Uri uri;
     int64_t written;
     std::chrono::time_point<std::chrono::steady_clock> next{std::chrono::seconds(0)};
-    constexpr static int64_t TimeoutNanoseconds{
-        36000000000}; //!< An hour in nanoseconds, this is an arbitrarily long timeout that should never be reached.
 
     static int Start(snd_pcm_ioplug_t* ext)
     {
         auto* self{static_cast<SnapcastPcm*>(ext->private_data)};
         std::scoped_lock lock{self->mutex};
         LOG(INFO, LOG_TAG) << "Start\n";
-        // if (!self->stream)
-        //     return -EBADFD; // This should be checked by pcm_ioplug but we'll do it here too.
+        if (!self->stream)
+            return -EBADFD; // This should be checked by pcm_ioplug but we'll do it here too.
 
+        self->stream->start();
         // oboe::Result result{self->stream->requestStart()};
         // if (result != oboe::Result::OK) {
         //     std::cerr << "[ALSA Oboe] Failed to start stream: " << oboe::convertToText(result) << std::endl;
@@ -79,9 +78,11 @@ private:
         auto* self{static_cast<SnapcastPcm*>(ext->private_data)};
         std::scoped_lock lock{self->mutex};
         LOG(INFO, LOG_TAG) << "Stop\n";
-        // if (!self->stream)
-        //     return -EBADFD;
 
+        if (!self->stream)
+            return -EBADFD;
+
+        self->stream->stop();
         // oboe::StreamState state{self->stream->getState()};
         // if (state == oboe::StreamState::Stopped || state == oboe::StreamState::Flushed)
         //     return 0; // We don't need to do anything if the stream is already stopped.
@@ -125,7 +126,6 @@ private:
     {
         auto* self{static_cast<SnapcastPcm*>(ext->private_data)};
         std::scoped_lock lock{self->mutex};
-        LOG(INFO, LOG_TAG) << "Pointer\n";
         // if (!self->stream)
         //     return -EBADFD;
 
@@ -140,7 +140,9 @@ private:
 
         // We don't care about the device ring buffer position as Oboe handles writing samples to it.
         // Instead, we just need to return the current position relative to the imaginary ALSA buffer size.
-        return self->written % ext->buffer_size;
+        auto res = self->written % ext->buffer_size;
+        LOG(DEBUG, LOG_TAG) << "Pointer, return: " << res << "\n";
+        return res;
     }
 
     static snd_pcm_sframes_t Transfer(snd_pcm_ioplug_t* ext, const snd_pcm_channel_area_t* areas,
@@ -148,10 +150,11 @@ private:
     {
         auto* self{static_cast<SnapcastPcm*>(ext->private_data)};
         std::unique_lock lock{self->mutex};
-        LOG(INFO, LOG_TAG) << "Transfer, offset: " << offset << ", size: " << size << ", non-block: " << ext->nonblock
-                           << "\n";
-        // if (!self->stream)
-        //     return -EBADFD;
+        LOG(DEBUG, LOG_TAG) << "Transfer, offset: " << offset << ", size: " << size << ", non-block: " << ext->nonblock
+                            << "\n";
+        if (!self->stream)
+            return -EBADFD;
+
         if (size == 0)
             return 0;
 
@@ -285,8 +288,6 @@ private:
         //     self->stream->getBufferCapacityInFrames() << " < " << ext->buffer_size << std::endl;
         //     self->stream.reset(); return -EIO;
         // }
-
-        return 0;
     }
 
     static int Drain(snd_pcm_ioplug_t* ext)
@@ -394,7 +395,7 @@ public:
 
     SnapcastPcm()
     {
-        LOG(INFO, LOG_TAG) << "SnapcastPcm\n";
+        LOG(INFO, LOG_TAG) << "Create SnapcastPcm\n";
     }
 
     int Initialize(const char* name, snd_pcm_stream_t stream, int mode, const SampleFormat& sampleformat,
@@ -483,14 +484,14 @@ extern "C"
         snd_config_iterator_t i, next;
         int err;
         snd_pcm_t* spcm;
-        snd_config_t *slave = NULL, *sconf;
-        const char *fname = NULL, *ifname = NULL;
-        const char* format = NULL;
+        snd_config_t *slave = nullptr, *sconf;
+        const char *fname = nullptr, *ifname = nullptr;
+        const char* format = nullptr;
         long fd = -1, ifd = -1, trunc = 1;
         long perm = 0600;
         Uri uri("tcp://127.0.0.1:4953");
         SampleFormat sampleformat("44100:16:2");
-        AixLog::Filter logfilter(AixLog::Severity::error);
+        AixLog::Filter logfilter(AixLog::Severity::info);
         std::string logfile;
 
         snd_config_for_each(i, next, conf)

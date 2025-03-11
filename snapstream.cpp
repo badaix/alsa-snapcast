@@ -45,6 +45,7 @@ SnapStream::SnapStream(Uri uri)
 
 void SnapStream::resolve()
 {
+    LOG(DEBUG, LOG_TAG) << "Resolve\n";
     resolver_.async_resolve(uri_.host, std::to_string(uri_.port.value()),
                             [this](const boost::system::error_code& ec, const tcp::resolver::results_type& results)
     {
@@ -110,15 +111,26 @@ void SnapStream::start()
     LOG(INFO, LOG_TAG) << "Start\n";
 
     resolve();
+    io_context_.restart();
     t_ = std::thread([&]() { io_context_.run(); });
+    LOG(INFO, LOG_TAG) << "Started\n";
 }
 
 
 void SnapStream::stop()
 {
+    if (!t_.joinable())
+    {
+        LOG(INFO, LOG_TAG) << "Stopped\n";
+        return;
+    }
+
+    socket_.close();
+    timer_.cancel();
     io_context_.stop();
     connected_ = false;
     t_.join();
+    LOG(INFO, LOG_TAG) << "Stopped\n";
 }
 
 

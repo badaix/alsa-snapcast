@@ -82,7 +82,7 @@ private:
         if (!self->stream)
             return -EBADFD;
 
-        self->stream->stop();
+        // self->stream->stop();
         // oboe::StreamState state{self->stream->getState()};
         // if (state == oboe::StreamState::Stopped || state == oboe::StreamState::Flushed)
         //     return 0; // We don't need to do anything if the stream is already stopped.
@@ -182,7 +182,8 @@ private:
         double sec = static_cast<double>(size) / static_cast<double>(ext->rate);
         self->next += std::chrono::microseconds(static_cast<int64_t>(sec * 1000 * 1000));
 
-        if (ext->nonblock == 0)
+        // When using MPD, non-block is true, but seems to be required
+        // if (ext->nonblock == 0)
         {
             std::this_thread::sleep_for(self->next - now);
         }
@@ -220,9 +221,11 @@ private:
         LOG(INFO, LOG_TAG) << "Close\n";
         if (ext->private_data)
         {
-            ext->private_data = nullptr;
             auto* self{static_cast<SnapcastPcm*>(ext->private_data)};
+            if (self->stream)
+                self->stream->stop();
             delete self;
+            ext->private_data = nullptr;
         }
         return 0;
     }
